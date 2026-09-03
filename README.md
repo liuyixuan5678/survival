@@ -6,4 +6,4 @@ A survival shooting game where you us guns to kill enemies (or just watch your t
 
 -Drones so you can crash into enemies
 
--Touchscreen controls to secretly play using your school's Ipad
+-Touchscreen controls to play on Ipad
