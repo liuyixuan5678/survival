@@ -6,6 +6,8 @@
 
 -New ability to throw spear
 
+# Games
+
 **Survival Prototype**
 
 A survival shooting game where you us guns to kill enemies (or just watch your turrets kill them).
