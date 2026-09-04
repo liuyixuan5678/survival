@@ -1,3 +1,11 @@
+**What's New**
+
+-Bug fixes
+
+-Sound effects
+
+-New ability to throw spear
+
 **Survival Prototype**
 
 A survival shooting game where you us guns to kill enemies (or just watch your turrets kill them).
@@ -21,3 +29,4 @@ The better version.
 -Enemies with abilities
 
 -Walls to hide from enemies
+
