@@ -358,7 +358,7 @@ function startGame() {
     hp: 100, maxHp: 100, spd: 3,
     em: 0,
     spearCd: 0,
-    weapons: ['pistol', 'fist'], wIdx: 0, lastShot: {},
+    weapons: ['pistol', 'katana'], wIdx: 0, lastShot: {},
     dmgMult: 1, rateMult: 1,
     shield: 0, regen: 0, magnet: 80,
     level: 1, wave: 1, kills: 0,
@@ -393,6 +393,13 @@ function getTouchPos(t) {
 
 let _leftTouchId = null, _rightTouchId = null;
 const _touchStarts = {}; // identifier -> {x, y}
+const _uiTouchIds = new Set(); // touches that hit a HUD button — skip joystick
+
+function _hitsHudBtn(p) {
+  // Returns true if touch position lands on any active HUD tap area
+  const areas = [_hudAreas.shopBtn, _hudAreas.turretBtn, _hudAreas.abilityBtn];
+  return areas.some(a => a && p.x>=a.x && p.x<=a.x+a.w && p.y>=a.y && p.y<=a.y+a.h);
+}
 
 function onTouchStart(e) {
   e.preventDefault();
@@ -402,6 +409,9 @@ function onTouchStart(e) {
 
     // Only activate joysticks when playing and touchscreen mode is on
     if (!touchscreenMode || state !== 'playing') return;
+
+    // If the touch lands on a HUD button, reserve it as a UI touch only
+    if (_hitsHudBtn(p)) { _uiTouchIds.add(t.identifier); return; }
 
     if (p.x < W/2 && _leftTouchId === null) {
       _leftTouchId = t.identifier;
@@ -446,9 +456,10 @@ function onTouchEnd(e) {
     const start = _touchStarts[t.identifier];
     delete _touchStarts[t.identifier];
 
-    // Detect tap: in playing state check movement; in UI states always treat as tap
+    // UI touches always fire as taps; playing-state joystick touches require small movement
     const moved = start ? Math.hypot(p.x - start.x, p.y - start.y) : 0;
-    const isTap = state !== 'playing' || moved < 12;
+    const isTap = _uiTouchIds.has(t.identifier) || state !== 'playing' || moved < 16;
+    _uiTouchIds.delete(t.identifier);
     if (isTap) {
       onClick({clientX: t.clientX, clientY: t.clientY});
     }
