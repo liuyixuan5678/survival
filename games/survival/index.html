@@ -42,7 +42,10 @@ const ENEMY_DEF = {
   runner:  {name:'Runner',  hp:35,  spd:2.8, dmg:10, sz:14, col:'#c0392b', emMin:2, emMax:4,  hpChance:0.10, melee:true},
   brute:   {name:'Brute',   hp:280, spd:0.7, dmg:22, sz:30, col:'#7f8c8d', emMin:6, emMax:12, hpChance:0.25, melee:true},
   shooter: {name:'Shooter', hp:70,  spd:1.0, dmg:14, sz:20, col:'#8e44ad', emMin:3, emMax:7,  hpChance:0.20, melee:false},
-  boss:    {name:'BOSS',    hp:900, spd:0.9, dmg:28, sz:45, col:'#e74c3c', emMin:25,emMax:40, hpChance:0.80, melee:true},
+  boss:      {name:'BOSS',       hp:900,  spd:0.9, dmg:28, sz:45, col:'#e74c3c', emMin:25,emMax:40,  hpChance:0.80, melee:true},
+  ghost:     {name:'Ghost',      hp:80,   spd:1.8, dmg:15, sz:20, col:'#aaccff', emMin:4, emMax:8,   hpChance:0.12, melee:true, ghost:true},
+  ghostboss: {name:'GHOST BOSS', hp:9000, spd:0.7, dmg:40, sz:58, col:'#c8aaff', emMin:60,emMax:100, hpChance:1.00, melee:true, ghost:true},
+  tank:      {name:'Tank',       hp:450,  spd:0.6, dmg:30, sz:28, col:'#556b2f', emMin:8, emMax:16,  hpChance:0.35, melee:true, tank:true},
 };
 
 const LEVELS = [
@@ -60,10 +63,25 @@ const LEVELS = [
     [{t:'brute',n:3},{t:'shooter',n:6}],
     [{t:'zombie',n:10},{t:'boss',n:1}],
   ]},
+  {name:'The Wasteland', bg:'#1a1208', waves:[
+    [{t:'brute',n:3},{t:'zombie',n:12},{t:'runner',n:8}],
+    [{t:'shooter',n:10},{t:'brute',n:4},{t:'runner',n:10}],
+    [{t:'boss',n:1},{t:'brute',n:5},{t:'shooter',n:8}],
+  ]},
   {name:'Hellfire', bg:'#2a0a08', waves:[
-    [{t:'runner',n:15},{t:'shooter',n:8}],
-    [{t:'brute',n:5},{t:'shooter',n:10}],
-    [{t:'boss',n:2},{t:'runner',n:10}],
+    [{t:'brute',n:4},{t:'runner',n:12},{t:'shooter',n:6}],
+    [{t:'boss',n:1},{t:'shooter',n:12},{t:'runner',n:8}],
+    [{t:'boss',n:2},{t:'brute',n:4},{t:'shooter',n:8},{t:'runner',n:10}],
+  ]},
+  {name:'The Haunting', bg:'#0a0818', waves:[
+    [{t:'ghost',n:8},{t:'zombie',n:6}],
+    [{t:'ghost',n:12},{t:'runner',n:6}],
+    [{t:'ghost',n:10},{t:'ghostboss',n:1},{t:'brute',n:2}],
+  ]},
+  {name:'Iron Siege', bg:'#1a1a0a', waves:[
+    [{t:'tank',n:3},{t:'runner',n:8}],
+    [{t:'tank',n:5},{t:'shooter',n:8}],
+    [{t:'tank',n:6},{t:'boss',n:1},{t:'brute',n:3}],
   ]},
 ];
 
@@ -123,6 +141,7 @@ function ns(dur, vol=0.08, lp=1500) {
 }
 let _lastHitSnd = 0;
 function snd(id) {
+  if (!soundEnabled) return;
   try { switch(id) {
     case 'pistol':     tn(880,180,0.07,0.10); break;
     case 'shotgun':    ns(0.13,0.20,500); tn(220,70,0.10,0.09); break;
@@ -149,18 +168,27 @@ function snd(id) {
     case 'boss_die':    ns(0.5,0.28,150); tn(120,20,0.45,0.18,'sawtooth'); break;
     case 'spear_throw': ns(0.14,0.13,2200); tn(380,160,0.16,0.09,'sawtooth'); break;
     case 'turret':     tn(500,300,0.04,0.07,'square'); ns(0.03,0.04,1800); break;
+    case 'ghost_warn': tn(220,110,0.6,0.14,'sine'); setTimeout(()=>tn(180,90,0.7,0.10,'sine'),400);
+                       setTimeout(()=>ns(0.9,0.05,300),200); break;
   } } catch(e) {}
 }
 
 // ─────────────────────── STATE ───────────────────────
 
-let state; // 'menu' | 'playing' | 'shop' | 'upgrade' | 'gameover'
+let state; // 'menu' | 'playing' | 'shop' | 'upgrade' | 'gameover' | 'settings'
 let player, enemies, bullets, drops, particles;
 let camera, keys, mouse;
 let upgradeOptions, waveClearCountdown, waveSpawnCountdown, waveActive;
 let trees, walls; // generated once, never reset
 let meleeSwings;
 let turretPanelOpen = false;
+let ghostWarningTimer = 0;
+let _hudAreas = {};
+let soundEnabled = true;
+let touchscreenMode = false;
+let _prevState = 'playing'; // state to return to when closing settings
+let virtualJoy = {dx:0, dy:0, active:false, startX:0, startY:0, curX:0, curY:0};
+let aimJoy = {active:false, dx:0, dy:0, startX:0, startY:0};
 
 const SHOP_X = WORLD/2+250, SHOP_Y = WORLD/2-200, SHOP_W = 90, SHOP_H = 90;
 
@@ -252,6 +280,12 @@ function init() {
   document.onkeyup   = e => { keys[e.code] = false; };
   canvas.addEventListener('click', onClick);
 
+  // Touch events for touchscreen mode
+  canvas.addEventListener('touchstart',  onTouchStart,  {passive:false});
+  canvas.addEventListener('touchmove',   onTouchMove,   {passive:false});
+  canvas.addEventListener('touchend',    onTouchEnd,    {passive:false});
+  canvas.addEventListener('touchcancel', onTouchEnd,    {passive:false});
+
   state = 'menu';
   requestAnimationFrame(loop);
 }
@@ -259,10 +293,11 @@ function init() {
 function onKey(code) {
   if (state==='menu'    && code==='Space') { startGame(); return; }
   if (state==='gameover'&& code==='Space') { startGame(); return; }
+  if (code==='Escape' && state==='settings') { state = _prevState; return; }
   if (state==='playing') {
     if (code==='KeyE') tryOpenShop();
     if (code==='KeyQ' && player.turret) turretPanelOpen = !turretPanelOpen;
-    if (code==='Escape') turretPanelOpen = false;
+    if (code==='Escape') { turretPanelOpen = false; }
     if ((code==='ShiftLeft'||code==='ShiftRight') && player.weapons[player.wIdx]==='katana') tryDeflect();
     if ((code==='ShiftLeft'||code==='ShiftRight') && player.weapons[player.wIdx]==='spear')  trySpearThrow();
     for (let i=0; i<9; i++)
@@ -273,7 +308,7 @@ function onKey(code) {
     if (code==='Digit2') pickUpgrade(1);
     if (code==='Digit3') pickUpgrade(2);
   }
-  if (state==='shop'    && code==='Escape') { state = 'playing'; }
+  if (state==='shop' && code==='Escape') { state = 'playing'; }
 }
 
 function onClick(e) {
@@ -281,9 +316,33 @@ function onClick(e) {
   const mx = e.clientX - r.left, my = e.clientY - r.top;
   if (state==='menu')    { startGame(); return; }
   if (state==='gameover'){ startGame(); return; }
+  if (state==='settings'){ handleSettingsClick(mx, my); return; }
+  // Settings gear button (top-right, always visible during play)
+  if ((state==='playing'||state==='shop'||state==='upgrade') && mx>=W-46&&mx<=W-10&&my>=10&&my<=46) {
+    _prevState = state; state = 'settings'; return;
+  }
   if (turretPanelOpen)   { handleTurretPanelClick(mx, my); return; }
   if (state==='shop')    { handleShopClick(mx, my); return; }
   if (state==='upgrade') { handleUpgradeClick(mx, my); return; }
+  if (state==='playing') {
+    // Shop button
+    const sb = _hudAreas.shopBtn;
+    if (sb && mx>=sb.x&&mx<=sb.x+sb.w&&my>=sb.y&&my<=sb.y+sb.h) { tryOpenShop(); return; }
+    // Turret button
+    const tb = _hudAreas.turretBtn;
+    if (tb && mx>=tb.x&&mx<=tb.x+tb.w&&my>=tb.y&&my<=tb.y+tb.h && player.turret) {
+      turretPanelOpen = !turretPanelOpen; return;
+    }
+    // Weapon bar slots
+    const sW=62, sH=60, gap=4, total=9;
+    const bW=sW*total+gap*(total-1), bx=(W-bW)/2, by=H-sH-10;
+    if (my>=by&&my<=by+sH) {
+      for (let i=0; i<total; i++) {
+        const cx=bx+i*(sW+gap);
+        if (mx>=cx&&mx<=cx+sW && player.weapons[i]) { player.wIdx=i; return; }
+      }
+    }
+  }
 }
 
 function startGame() {
@@ -309,6 +368,7 @@ function startGame() {
   waveClearCountdown = 0;
   waveSpawnCountdown = 0;
   waveActive         = false;
+  ghostWarningTimer  = 0;
 
   // Generate map ONCE — it will not be regenerated on wave/level advances
   generateMap();
@@ -317,12 +377,92 @@ function startGame() {
   spawnWave();
 }
 
+// ─────────────────────── TOUCH HANDLERS ───────────────────────
+
+function getTouchPos(t) {
+  const r = canvas.getBoundingClientRect();
+  return {x: t.clientX - r.left, y: t.clientY - r.top};
+}
+
+let _leftTouchId = null, _rightTouchId = null;
+const _touchStarts = {}; // identifier -> {x, y}
+
+function onTouchStart(e) {
+  e.preventDefault();
+  Array.from(e.changedTouches).forEach(t => {
+    const p = getTouchPos(t);
+    _touchStarts[t.identifier] = {x: p.x, y: p.y};
+
+    // Only activate joysticks when playing and touchscreen mode is on
+    if (!touchscreenMode || state !== 'playing') return;
+
+    if (p.x < W/2 && _leftTouchId === null) {
+      _leftTouchId = t.identifier;
+      virtualJoy.active = true;
+      virtualJoy.startX = p.x; virtualJoy.startY = p.y;
+      virtualJoy.curX   = p.x; virtualJoy.curY   = p.y;
+      virtualJoy.dx = 0; virtualJoy.dy = 0;
+    } else if (p.x >= W/2 && _rightTouchId === null) {
+      _rightTouchId = t.identifier;
+      aimJoy.active = true;
+      aimJoy.startX = p.x; aimJoy.startY = p.y;
+      aimJoy.dx = 0; aimJoy.dy = 0;
+    }
+  });
+}
+
+function onTouchMove(e) {
+  e.preventDefault();
+  Array.from(e.changedTouches).forEach(t => {
+    const p = getTouchPos(t);
+    if (t.identifier === _leftTouchId) {
+      virtualJoy.curX = p.x; virtualJoy.curY = p.y;
+      const JR = 60;
+      let dx = p.x - virtualJoy.startX, dy = p.y - virtualJoy.startY;
+      const d = Math.hypot(dx, dy);
+      if (d > JR) { dx = dx/d*JR; dy = dy/d*JR; }
+      virtualJoy.dx = dx/JR; virtualJoy.dy = dy/JR;
+    } else if (t.identifier === _rightTouchId) {
+      const JR = 60;
+      let dx = p.x - aimJoy.startX, dy = p.y - aimJoy.startY;
+      const d = Math.hypot(dx, dy);
+      if (d > JR) { dx = dx/d*JR; dy = dy/d*JR; }
+      aimJoy.dx = dx/JR; aimJoy.dy = dy/JR;
+    }
+  });
+}
+
+function onTouchEnd(e) {
+  e.preventDefault();
+  Array.from(e.changedTouches).forEach(t => {
+    const p = getTouchPos(t);
+    const start = _touchStarts[t.identifier];
+    delete _touchStarts[t.identifier];
+
+    // Detect tap: in playing state check movement; in UI states always treat as tap
+    const moved = start ? Math.hypot(p.x - start.x, p.y - start.y) : 0;
+    const isTap = state !== 'playing' || moved < 12;
+    if (isTap) {
+      onClick({clientX: t.clientX, clientY: t.clientY});
+    }
+
+    if (t.identifier === _leftTouchId) {
+      _leftTouchId = null; virtualJoy.active = false;
+      virtualJoy.dx = 0; virtualJoy.dy = 0;
+    } else if (t.identifier === _rightTouchId) {
+      _rightTouchId = null; aimJoy.active = false; aimJoy.dx = 0; aimJoy.dy = 0; mouse.down = false;
+    }
+  });
+}
+
 // ─────────────────────── WAVES ───────────────────────
 
 function spawnWave() {
   const lv = LEVELS[(player.level-1) % LEVELS.length];
   const wv = lv.waves[(player.wave-1) % lv.waves.length];
   const sc = 1 + (player.level-1) * 0.18;
+  // Show ghost warning when entering level 5 for the first time
+  if (player.level === 6 && player.wave === 1 && ghostWarningTimer === 0) { ghostWarningTimer = 5; snd('ghost_warn'); }
   wv.forEach(g => { for (let i=0; i<g.n; i++) spawnEnemy(g.t, sc); });
   waveActive = true;
 }
@@ -342,8 +482,9 @@ function spawnEnemy(type, sc) {
     spd: d.spd, dmg: d.dmg*sc,
     sz: d.sz, col: d.col,
     emMin: d.emMin, emMax: d.emMax, hpChance: d.hpChance,
-    melee: d.melee,
-    lastAttack: 0, lastShot: Date.now(),
+    melee: d.melee, ghost: d.ghost || false, tank: d.tank || false,
+    phaseAngle: Math.random()*Math.PI*2,
+    lastAttack: 0, lastShot: 0,
   });
 }
 
@@ -431,7 +572,18 @@ function updatePlayer(dt) {
   if (keys['KeyS']||keys['ArrowDown'])  dy += 1;
   if (keys['KeyA']||keys['ArrowLeft'])  dx -= 1;
   if (keys['KeyD']||keys['ArrowRight']) dx += 1;
-  if (dx||dy) { const l=Math.hypot(dx,dy); dx/=l; dy/=l; }
+  if (touchscreenMode && virtualJoy.active) { dx += virtualJoy.dx; dy += virtualJoy.dy; }
+  if (dx||dy) { const l=Math.hypot(dx,dy)||1; dx/=l; dy/=l; }
+  // Aim + fire via right joystick
+  if (touchscreenMode && aimJoy.active) {
+    const AIM_DIST = 120;
+    const px_screen = player.x - camera.x, py_screen = player.y - camera.y;
+    mouse.x = px_screen + aimJoy.dx * AIM_DIST;
+    mouse.y = py_screen + aimJoy.dy * AIM_DIST;
+    mouse.down = Math.hypot(aimJoy.dx, aimJoy.dy) > 0.15;
+  } else if (touchscreenMode && !aimJoy.active) {
+    mouse.down = false;
+  }
   p.x = clamp(p.x + dx*p.spd*60*dt, 20, WORLD-20);
   p.y = clamp(p.y + dy*p.spd*60*dt, 20, WORLD-20);
   resolveObstacles(p, 18);
@@ -585,6 +737,7 @@ function tryMelee(wId, w) {
 }
 
 function updateEnemies(dt) {
+  if (ghostWarningTimer > 0) ghostWarningTimer = Math.max(0, ghostWarningTimer - dt);
   const now = Date.now();
   enemies.forEach(e => {
     if (e.hp <= 0) return;
@@ -594,6 +747,9 @@ function updateEnemies(dt) {
       // Shooter: keep ~220px range, fire at player
       if (dist > 240) { e.x += dx/dist*e.spd*60*dt; e.y += dy/dist*e.spd*60*dt; }
       else if (dist < 180) { e.x -= dx/dist*e.spd*30*dt; e.y -= dy/dist*e.spd*30*dt; }
+      resolveObstacles(e, e.sz);
+      e.x = clamp(e.x, e.sz, WORLD-e.sz);
+      e.y = clamp(e.y, e.sz, WORLD-e.sz);
       if (now - e.lastShot > 1800) {
         e.lastShot = now;
         const a = Math.atan2(dy,dx) + (Math.random()-0.5)*0.15;
@@ -603,12 +759,25 @@ function updateEnemies(dt) {
     } else {
       e.x += dx/dist*e.spd*60*dt;
       e.y += dy/dist*e.spd*60*dt;
-      resolveObstacles(e, e.sz);
-      e.x = clamp(e.x, e.sz, WORLD-e.sz);
-      e.y = clamp(e.y, e.sz, WORLD-e.sz);
+      if (!e.ghost) {
+        resolveObstacles(e, e.sz);
+        e.x = clamp(e.x, e.sz, WORLD-e.sz);
+        e.y = clamp(e.y, e.sz, WORLD-e.sz);
+      } else {
+        e.phaseAngle += dt * 3;
+        e.x = clamp(e.x, e.sz, WORLD-e.sz);
+        e.y = clamp(e.y, e.sz, WORLD-e.sz);
+      }
       if (dist < e.sz+18 && now-e.lastAttack > 700) {
         e.lastAttack = now;
         damagePlayer(e.dmg);
+      }
+      // Tank: fires pistol shots in random directions
+      if (e.tank && now - e.lastShot > 450) {
+        e.lastShot = now;
+        const a = Math.random() * Math.PI * 2;
+        bullets.push({x:e.x, y:e.y, vx:Math.cos(a)*9, vy:Math.sin(a)*9,
+          dmg:20, col:'#bbb', life:3, fromPlayer:false, rocket:false});
       }
     }
   });
@@ -691,7 +860,7 @@ function explode(x, y, dmg) {
 
 function killEnemy(e) {
   e.hp = 0; player.kills++;
-  if (e.name === 'BOSS') snd('boss_die'); else snd('kill');
+  if (e.name === 'BOSS' || e.name === 'GHOST BOSS') snd('boss_die'); else snd('kill');
   const em = e.emMin + (0|Math.random()*(e.emMax-e.emMin+1));
   for (let i=0; i<em; i++)
     drops.push({x:e.x+(Math.random()-.5)*32, y:e.y+(Math.random()-.5)*32,
@@ -774,8 +943,12 @@ function draw() {
   if (turretPanelOpen && player.turret) drawTurretPanel();
   if (state==='playing' && waveClearCountdown > 0) drawWaveBanner();
   if (state==='playing' && waveSpawnCountdown > 0) drawWaveCountdown();
+  if (state==='playing' && ghostWarningTimer > 0)  drawGhostWarning();
   if (state==='shop')    drawShopUI();
   if (state==='upgrade') drawUpgradeUI();
+  if (state==='settings') drawSettingsUI();
+  if (touchscreenMode && (state==='playing'||state==='settings')) drawTouchControls();
+  drawSettingsGear();
 }
 
 function drawWorld() {
@@ -839,11 +1012,34 @@ function drawWorld() {
   // Enemies
   enemies.forEach(e => {
     if (e.hp <= 0) return;
-    // body
-    ctx.fillStyle = e.col;
-    ctx.beginPath(); ctx.arc(e.x, e.y, e.sz, 0, Math.PI*2); ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-    ctx.lineWidth = 1.5; ctx.stroke();
+    if (e.ghost) {
+      // Ghost: semi-transparent, pulsing, ethereal
+      const pulse = 0.45 + 0.25 * Math.sin(e.phaseAngle);
+      ctx.save();
+      ctx.globalAlpha = pulse;
+      // Outer glow
+      ctx.shadowColor = '#aaccff';
+      ctx.shadowBlur = 18;
+      ctx.fillStyle = '#c8e0ff';
+      ctx.beginPath(); ctx.arc(e.x, e.y, e.sz, 0, Math.PI*2); ctx.fill();
+      // Inner wisp
+      ctx.fillStyle = '#eef4ff';
+      ctx.beginPath(); ctx.arc(e.x - e.sz*0.2, e.y - e.sz*0.2, e.sz*0.45, 0, Math.PI*2); ctx.fill();
+      // Ghost eyes
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = 'rgba(0,10,40,0.85)';
+      ctx.beginPath(); ctx.ellipse(e.x - e.sz*0.28, e.y - e.sz*0.1, e.sz*0.16, e.sz*0.22, 0, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(e.x + e.sz*0.28, e.y - e.sz*0.1, e.sz*0.16, e.sz*0.22, 0, 0, Math.PI*2); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.restore();
+      ctx.globalAlpha = pulse * 0.9;
+    } else {
+      // Normal enemy body
+      ctx.fillStyle = e.col;
+      ctx.beginPath(); ctx.arc(e.x, e.y, e.sz, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.lineWidth = 1.5; ctx.stroke();
+    }
     // name label for large enemies
     if (e.sz >= 28) {
       ctx.fillStyle = '#fff';
@@ -854,8 +1050,9 @@ function drawWorld() {
     // HP bar
     const bw = e.sz*2.6, bh = 5, bx = e.x-bw/2, by = e.y-e.sz-12;
     ctx.fillStyle = '#222'; ctx.fillRect(bx, by, bw, bh);
-    ctx.fillStyle = '#e74c3c'; ctx.fillRect(bx, by, bw*(e.hp/e.maxHp), bh);
+    ctx.fillStyle = e.ghost ? '#7ab0ff' : '#e74c3c'; ctx.fillRect(bx, by, bw*(e.hp/e.maxHp), bh);
     ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth=1; ctx.strokeRect(bx,by,bw,bh);
+    ctx.globalAlpha = 1;
   });
 
   // Bullets
@@ -1244,9 +1441,9 @@ function drawMinimap() {
     ctx.fill();
   });
 
-  // Enemies (red dots)
-  ctx.fillStyle = '#e74c3c';
+  // Enemies (red dots, ghosts in blue)
   enemies.forEach(e => {
+    ctx.fillStyle = e.ghost ? '#aaccff' : '#e74c3c';
     ctx.beginPath();
     ctx.arc(mx + e.x*scale, my + e.y*scale, 2, 0, Math.PI*2);
     ctx.fill();
@@ -1330,14 +1527,20 @@ function drawHUD() {
     ctx.fillText(`⚠ Enemies: ${enemies.length}`, W/2, 32);
   }
 
-  // Shop proximity hint
+  // Shop button
   const sd = Math.hypot(player.x-(SHOP_X+SHOP_W/2), player.y-(SHOP_Y+SHOP_H/2));
   if (sd < 130 && state==='playing') {
-    ctx.fillStyle='rgba(255,215,0,0.95)'; ctx.font='bold 15px monospace'; ctx.textAlign='center';
-    ctx.fillText('[E] Shop', W/2, H-44);
+    const sbw=140, sbh=36, sbx=W/2-sbw/2, sby=10;
+    ctx.fillStyle='rgba(180,140,0,0.9)'; ctx.fillRect(sbx,sby,sbw,sbh);
+    ctx.strokeStyle='#ffd700'; ctx.lineWidth=2; ctx.strokeRect(sbx,sby,sbw,sbh);
+    ctx.fillStyle='#fff'; ctx.font='bold 15px monospace'; ctx.textAlign='center';
+    ctx.fillText('[E] Open Shop', W/2, sby+24);
+    _hudAreas.shopBtn = {x:sbx, y:sby, w:sbw, h:sbh};
+  } else {
+    _hudAreas.shopBtn = null;
   }
 
-  // Turret Q hint
+  // Turret button
   if (player.turret) {
     const lvl = TURRET_LEVELS[player.turret.level - 1];
     const count = player.turret.slots.length;
@@ -1345,6 +1548,9 @@ function drawHUD() {
     ctx.strokeStyle=lvl.col; ctx.lineWidth=1; ctx.strokeRect(W-188,10,178,32);
     ctx.fillStyle=lvl.col; ctx.font='bold 13px monospace'; ctx.textAlign='center';
     ctx.fillText(`🔩 ${lvl.label} ×${count}  [Q]`, W-99, 31);
+    _hudAreas.turretBtn = {x:W-188, y:10, w:178, h:32};
+  } else {
+    _hudAreas.turretBtn = null;
   }
 
   // Deflect hint (katana only)
@@ -1538,6 +1744,38 @@ function wrapText(text,cx,y,mw,lh) {
   ctx.fillText(ln.trim(),cx,y);
 }
 
+function drawGhostWarning() {
+  const a = Math.min(1, ghostWarningTimer * 0.8) * Math.min(1, ghostWarningTimer);
+  ctx.save();
+  ctx.globalAlpha = a;
+
+  // Dark banner
+  ctx.fillStyle = 'rgba(0,0,20,0.88)';
+  ctx.fillRect(0, H/2 - 80, W, 160);
+  ctx.strokeStyle = `rgba(160,200,255,${a*0.7})`;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(0, H/2 - 80, W, 160);
+
+  // Pulsing ghost icon + title
+  const pulse = 0.7 + 0.3 * Math.sin(Date.now() / 220);
+  ctx.shadowColor = '#aaccff';
+  ctx.shadowBlur = 28 * pulse;
+  ctx.fillStyle = '#c8e0ff';
+  ctx.font = 'bold 44px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('👻  GHOSTS HAVE ARRIVED!', W/2, H/2 - 16);
+
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#aabbdd';
+  ctx.font = '16px monospace';
+  ctx.fillText('They phase through walls and trees — normal cover is useless!', W/2, H/2 + 22);
+  ctx.fillStyle = '#7799bb';
+  ctx.font = '13px monospace';
+  ctx.fillText('Aim and shoot — the environment won\'t protect you.', W/2, H/2 + 48);
+
+  ctx.restore();
+}
+
 function drawWaveCountdown() {
   const t = waveSpawnCountdown;
   const num = Math.ceil(t);
@@ -1576,6 +1814,137 @@ function drawWaveCountdown() {
   ctx.font = '14px monospace';
   ctx.textAlign = 'center';
   ctx.fillText('Next wave incoming…', cx, H/2 + 50);
+}
+
+// ─── SETTINGS GEAR BUTTON ───
+
+function drawSettingsGear() {
+  if (state==='menu' || state==='gameover') return;
+  const bx=W-46, by=10, bw=36, bh=36;
+  ctx.fillStyle = 'rgba(0,0,0,0.65)';
+  ctx.fillRect(bx, by, bw, bh);
+  ctx.strokeStyle = state==='settings' ? '#ffd700' : 'rgba(255,255,255,0.25)';
+  ctx.lineWidth = 1.5; ctx.strokeRect(bx, by, bw, bh);
+  ctx.fillStyle = state==='settings' ? '#ffd700' : '#aaa';
+  ctx.font = '20px monospace'; ctx.textAlign = 'center';
+  ctx.fillText('⚙', bx+bw/2, by+25);
+}
+
+// ─── SETTINGS UI ───
+
+let _settingsAreas = [];
+function drawSettingsUI() {
+  _settingsAreas = [];
+  // Dim background
+  ctx.fillStyle = 'rgba(0,0,0,0.78)'; ctx.fillRect(0, 0, W, H);
+
+  const pw=380, ph=280, px=(W-pw)/2, py=(H-ph)/2;
+  ctx.fillStyle = '#0e0e1a'; ctx.fillRect(px, py, pw, ph);
+  ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 2; ctx.strokeRect(px, py, pw, ph);
+
+  ctx.fillStyle = '#ffd700'; ctx.font = 'bold 22px monospace'; ctx.textAlign = 'center';
+  ctx.fillText('⚙  SETTINGS', W/2, py+38);
+
+  ctx.fillStyle = '#555'; ctx.font = '11px monospace';
+  ctx.fillText('Press ESC or close to resume', W/2, py+58);
+
+  // Toggle button helper
+  function drawToggle(label, desc, value, tx, ty, id) {
+    const bw=340, bh=52;
+    ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fillRect(tx, ty, bw, bh);
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth=1; ctx.strokeRect(tx, ty, bw, bh);
+
+    ctx.fillStyle = '#ddd'; ctx.font = 'bold 13px monospace'; ctx.textAlign = 'left';
+    ctx.fillText(label, tx+12, ty+20);
+    ctx.fillStyle = '#777'; ctx.font = '10px monospace';
+    ctx.fillText(desc, tx+12, ty+36);
+
+    // Toggle pill
+    const tx2=tx+bw-70, ty2=ty+14, tw=58, th=24;
+    ctx.fillStyle = value ? '#27ae60' : '#444';
+    ctx.beginPath(); ctx.roundRect(tx2, ty2, tw, th, 12); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(value ? tx2+tw-14 : tx2+14, ty2+th/2, 9, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = value ? '#fff' : '#888'; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(value ? 'ON' : 'OFF', value ? tx2+tw-14 : tx2+14, ty2+th/2+3);
+
+    _settingsAreas.push({id, x:tx, y:ty, w:bw, h:bh});
+  }
+
+  const row1y = py+72, row2y = py+132;
+  drawToggle('🔊  Sound', 'Enable or disable all game audio', soundEnabled, px+20, row1y, 'sound');
+  drawToggle('📱  Touchscreen', 'Show on-screen joystick & fire button', touchscreenMode, px+20, row2y, 'touch');
+
+  // Close button
+  const cbx=px+(pw-140)/2, cby=py+ph-52, cbw=140, cbh=36;
+  ctx.fillStyle = '#1a3a1a'; ctx.fillRect(cbx, cby, cbw, cbh);
+  ctx.strokeStyle = '#2ecc71'; ctx.lineWidth=1.5; ctx.strokeRect(cbx, cby, cbw, cbh);
+  ctx.fillStyle = '#2ecc71'; ctx.font = 'bold 13px monospace'; ctx.textAlign = 'center';
+  ctx.fillText('▶  Resume', W/2, cby+23);
+  _settingsAreas.push({id:'close', x:cbx, y:cby, w:cbw, h:cbh});
+}
+
+function handleSettingsClick(mx, my) {
+  _settingsAreas.forEach(a => {
+    if (mx>=a.x && mx<=a.x+a.w && my>=a.y && my<=a.y+a.h) {
+      if (a.id==='sound')  soundEnabled     = !soundEnabled;
+      if (a.id==='touch')  touchscreenMode  = !touchscreenMode;
+      if (a.id==='close')  state = _prevState;
+    }
+  });
+}
+
+// ─── TOUCHSCREEN OVERLAY ───
+
+function drawTouchControls() {
+  const JR = 60;
+
+  // Left joystick (movement)
+  const LX=110, LY=H-130;
+  ctx.globalAlpha = 0.22;
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(LX, LY, JR, 0, Math.PI*2); ctx.fill();
+  ctx.globalAlpha = 0.35;
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(LX, LY, JR, 0, Math.PI*2); ctx.stroke();
+  const lkx = virtualJoy.active ? LX + virtualJoy.dx*JR : LX;
+  const lky = virtualJoy.active ? LY + virtualJoy.dy*JR : LY;
+  ctx.globalAlpha = 0.7;
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(lkx, lky, 22, 0, Math.PI*2); ctx.fill();
+
+  // Right joystick (aim + fire)
+  const RX=W-110, RY=H-130;
+  const aiming = aimJoy.active && Math.hypot(aimJoy.dx, aimJoy.dy) > 0.15;
+  ctx.globalAlpha = 0.22;
+  ctx.fillStyle = aiming ? '#e74c3c' : '#fff';
+  ctx.beginPath(); ctx.arc(RX, RY, JR, 0, Math.PI*2); ctx.fill();
+  ctx.globalAlpha = 0.45;
+  ctx.strokeStyle = aiming ? '#e74c3c' : '#fff'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(RX, RY, JR, 0, Math.PI*2); ctx.stroke();
+  // Knob
+  const rkx = aimJoy.active ? RX + aimJoy.dx*JR : RX;
+  const rky = aimJoy.active ? RY + aimJoy.dy*JR : RY;
+  ctx.globalAlpha = 0.7;
+  ctx.fillStyle = aiming ? '#e74c3c' : '#ccc';
+  ctx.beginPath(); ctx.arc(rkx, rky, 22, 0, Math.PI*2); ctx.fill();
+  // Aim direction line
+  if (aiming) {
+    ctx.globalAlpha = 0.5;
+    ctx.strokeStyle = '#e74c3c'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(RX, RY); ctx.lineTo(RX + aimJoy.dx*JR, RY + aimJoy.dy*JR); ctx.stroke();
+    // Aim circle indicator (shows where bullets will go, in world coords)
+    const px_screen = player.x - camera.x, py_screen = player.y - camera.y;
+    const ax = px_screen + aimJoy.dx*120, ay = py_screen + aimJoy.dy*120;
+    ctx.globalAlpha = 0.55;
+    ctx.strokeStyle = '#ff6644'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(ax, ay, 14, 0, Math.PI*2); ctx.stroke();
+    ctx.globalAlpha = 0.25;
+    ctx.fillStyle = '#ff6644';
+    ctx.beginPath(); ctx.arc(ax, ay, 14, 0, Math.PI*2); ctx.fill();
+  }
+
+  ctx.globalAlpha = 1;
 }
 
 function drawMenu() {
