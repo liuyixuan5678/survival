@@ -1,10 +1,8 @@
 **What's New**
 
+-Touchscreen
+
 -Bug fixes
-
--Sound effects
-
--New ability to throw spear
 
 # Games
 
