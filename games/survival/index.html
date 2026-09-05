@@ -325,6 +325,13 @@ function onClick(e) {
   if (state==='shop')    { handleShopClick(mx, my); return; }
   if (state==='upgrade') { handleUpgradeClick(mx, my); return; }
   if (state==='playing') {
+    // Ability button (deflect / spear throw)
+    const ab = _hudAreas.abilityBtn;
+    if (ab && mx>=ab.x&&mx<=ab.x+ab.w&&my>=ab.y&&my<=ab.y+ab.h) {
+      if (ab.action==='deflect') tryDeflect();
+      if (ab.action==='spear')   trySpearThrow();
+      return;
+    }
     // Shop button
     const sb = _hudAreas.shopBtn;
     if (sb && mx>=sb.x&&mx<=sb.x+sb.w&&my>=sb.y&&my<=sb.y+sb.h) { tryOpenShop(); return; }
@@ -1553,33 +1560,44 @@ function drawHUD() {
     _hudAreas.turretBtn = null;
   }
 
-  // Deflect hint (katana only)
+  // Deflect button (katana only)
+  _hudAreas.abilityBtn = null;
   if (player.weapons[player.wIdx] === 'katana') {
     const ready = player.deflectCd <= 0;
     const col = player.deflectActive > 0 ? '#ddeeff' : ready ? '#aaddff' : '#556677';
-    ctx.fillStyle='rgba(0,0,0,0.65)'; ctx.fillRect(W/2-95, H-100, 190, 28);
-    ctx.strokeStyle=col; ctx.lineWidth=1; ctx.strokeRect(W/2-95, H-100, 190, 28);
-    ctx.fillStyle=col; ctx.font='bold 12px monospace'; ctx.textAlign='center';
-    const label = player.deflectActive > 0 ? '⚡ DEFLECTING!' : ready ? '[SHIFT] Deflect' : `Deflect ${player.deflectCd.toFixed(1)}s`;
-    ctx.fillText(label, W/2, H-81);
+    const abw=190, abh=44, abx=W/2-abw/2, aby=H-120;
+    ctx.fillStyle = ready ? 'rgba(30,60,90,0.85)' : 'rgba(0,0,0,0.65)';
+    ctx.fillRect(abx, aby, abw, abh);
+    ctx.strokeStyle=col; ctx.lineWidth=ready?2:1; ctx.strokeRect(abx, aby, abw, abh);
+    ctx.fillStyle=col; ctx.font='bold 13px monospace'; ctx.textAlign='center';
+    const label = player.deflectActive > 0 ? '⚡ DEFLECTING!' : ready ? '⚡ Deflect' : `Deflect ${player.deflectCd.toFixed(1)}s`;
+    ctx.fillText(label, abx+abw/2, aby+18);
+    ctx.fillStyle='#8899aa'; ctx.font='bold 11px monospace';
+    ctx.fillText('SHIFT', abx+abw/2, aby+32);
     if (!ready) {
-      ctx.fillStyle='#223344'; ctx.fillRect(W/2-93, H-74, 186, 5);
-      ctx.fillStyle='#aaddff'; ctx.fillRect(W/2-93, H-74, 186*(1-player.deflectCd), 5);
+      ctx.fillStyle='#223344'; ctx.fillRect(abx+2, aby+abh-8, abw-4, 5);
+      ctx.fillStyle='#aaddff'; ctx.fillRect(abx+2, aby+abh-8, (abw-4)*(1-player.deflectCd), 5);
     }
+    _hudAreas.abilityBtn = {x:abx, y:aby, w:abw, h:abh, action:'deflect'};
   }
 
-  // Spear throw hint
+  // Spear throw button
   if (player.weapons[player.wIdx] === 'spear') {
     const ready = player.spearCd <= 0;
     const col = ready ? '#c8a05a' : '#664422';
-    ctx.fillStyle='rgba(0,0,0,0.65)'; ctx.fillRect(W/2-95, H-100, 190, 28);
-    ctx.strokeStyle=col; ctx.lineWidth=1; ctx.strokeRect(W/2-95, H-100, 190, 28);
-    ctx.fillStyle=col; ctx.font='bold 12px monospace'; ctx.textAlign='center';
-    ctx.fillText(ready ? '[SHIFT] Spear Throw' : `Throw ${player.spearCd.toFixed(1)}s`, W/2, H-81);
+    const abw=190, abh=44, abx=W/2-abw/2, aby=H-120;
+    ctx.fillStyle = ready ? 'rgba(50,30,0,0.85)' : 'rgba(0,0,0,0.65)';
+    ctx.fillRect(abx, aby, abw, abh);
+    ctx.strokeStyle=col; ctx.lineWidth=ready?2:1; ctx.strokeRect(abx, aby, abw, abh);
+    ctx.fillStyle=col; ctx.font='bold 13px monospace'; ctx.textAlign='center';
+    ctx.fillText(ready ? '🏹 Spear Throw' : `Throw ${player.spearCd.toFixed(1)}s`, abx+abw/2, aby+18);
+    ctx.fillStyle='#aa8855'; ctx.font='bold 11px monospace';
+    ctx.fillText('SHIFT', abx+abw/2, aby+32);
     if (!ready) {
-      ctx.fillStyle='#331a00'; ctx.fillRect(W/2-93, H-74, 186, 5);
-      ctx.fillStyle='#c8a05a'; ctx.fillRect(W/2-93, H-74, 186*(1-player.spearCd/10), 5);
+      ctx.fillStyle='#331a00'; ctx.fillRect(abx+2, aby+abh-8, abw-4, 5);
+      ctx.fillStyle='#c8a05a'; ctx.fillRect(abx+2, aby+abh-8, (abw-4)*(1-player.spearCd/10), 5);
     }
+    _hudAreas.abilityBtn = {x:abx, y:aby, w:abw, h:abh, action:'spear'};
   }
 
   drawWeaponBar();
@@ -1862,7 +1880,8 @@ function drawSettingsUI() {
     // Toggle pill
     const tx2=tx+bw-70, ty2=ty+14, tw=58, th=24;
     ctx.fillStyle = value ? '#27ae60' : '#444';
-    ctx.beginPath(); ctx.roundRect(tx2, ty2, tw, th, 12); ctx.fill();
+    const r12=12;
+    ctx.beginPath(); ctx.moveTo(tx2+r12,ty2); ctx.lineTo(tx2+tw-r12,ty2); ctx.arcTo(tx2+tw,ty2,tx2+tw,ty2+r12,r12); ctx.lineTo(tx2+tw,ty2+th-r12); ctx.arcTo(tx2+tw,ty2+th,tx2+tw-r12,ty2+th,r12); ctx.lineTo(tx2+r12,ty2+th); ctx.arcTo(tx2,ty2+th,tx2,ty2+th-r12,r12); ctx.lineTo(tx2,ty2+r12); ctx.arcTo(tx2,ty2,tx2+r12,ty2,r12); ctx.closePath(); ctx.fill();
     ctx.fillStyle = '#fff';
     ctx.beginPath(); ctx.arc(value ? tx2+tw-14 : tx2+14, ty2+th/2, 9, 0, Math.PI*2); ctx.fill();
     ctx.fillStyle = value ? '#fff' : '#888'; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
